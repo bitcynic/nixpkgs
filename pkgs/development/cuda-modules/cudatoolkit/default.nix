@@ -164,6 +164,15 @@ backendStdenv.mkDerivation rec {
       python3
     ]);
 
+  autoPatchelfLibrarySearchPath = lib.optionals (lib.versionAtLeast version "12.5") [
+    "${ncurses}/lib"
+    "${libxcrypt}/lib"
+    "${python312}/lib"
+  ] ++ lib.optionals (lib.versionOlder version "12.5") [
+    "${ncurses5}/lib"
+    "${python3}/lib"
+  ];
+
   # Prepended to runpaths by autoPatchelf.
   # The order inherited from older rpath preFixup code
   runtimeDependencies = [
@@ -206,15 +215,25 @@ backendStdenv.mkDerivation rec {
       "libpython3.11.so.1.0"
     ];
 
-  preFixup =
-    if (lib.versionAtLeast version "10.1" && lib.versionOlder version "11") then
-      ''
-        ${lib.getExe' patchelf "patchelf"} $out/targets/*/lib/libnvrtc.so --add-needed libnvrtc-builtins.so
-      ''
-    else
-      ''
-        ${lib.getExe' patchelf "patchelf"} $out/lib64/libnvrtc.so --add-needed libnvrtc-builtins.so
-      '';
+  preFixup = ''
+    ${lib.optionalString (lib.versionAtLeast version "12.5")
+    # Remove the cuda-gdb binaries for unsupported versions of Python before autoPatchelf processes them.
+    ''
+      rm -f $out/bin/cuda-gdb-python3.8*
+      rm -f $out/bin/cuda-gdb-python3.9*
+      rm -f $out/bin/cuda-gdb-python3.10*
+      rm -f $out/bin/cuda-gdb-python3.11*
+    ''}
+  ''
+  +
+  (if (lib.versionAtLeast version "10.1" && lib.versionOlder version "11") then
+    ''
+      ${lib.getExe' patchelf "patchelf"} $out/targets/*/lib/libnvrtc.so --add-needed libnvrtc-builtins.so
+    ''
+  else
+    ''
+      ${lib.getExe' patchelf "patchelf"} $out/lib64/libnvrtc.so --add-needed libnvrtc-builtins.so
+    '');
 
   unpackPhase = ''
     sh $src --keep --noexec
