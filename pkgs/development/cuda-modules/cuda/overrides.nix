@@ -169,17 +169,20 @@ filterAndCreateOverrides {
         ++ lib.lists.optionals (stdenv.hostPlatform.isAarch64) [ expat ];
     };
 
-  cuda_nvcc =
-    { backendStdenv, setupCudaHook }:
-    prevAttrs: {
-      # Merge "bin" and "dev" into "out" to avoid circular references
-      outputs = builtins.filter (
-        x:
-        !(builtins.elem x [
-          "dev"
-          "bin"
-        ])
-      ) prevAttrs.outputs;
+cuda_nvcc =
+  { backendStdenv, setupCudaHook }:
+  prevAttrs: let
+    version = prevAttrs.version;
+    isAtLeast125 = builtins.compareVersions version "12.5" >= 0;
+  in {
+    # Merge "bin" and "dev" into "out" to avoid circular references
+    outputs = builtins.filter (
+      x:
+      !(builtins.elem x [
+        "dev"
+        "bin"
+      ])
+    ) prevAttrs.outputs;
 
       # Patch the nvcc.profile.
       # Syntax:
@@ -194,27 +197,46 @@ filterAndCreateOverrides {
       # nvcc to use the fixed backend toolchain. Cf. comments in
       # backend-stdenv.nix
 
+      # Conditionally modifies the postPatch based on the version of CUDA
       postPatch =
         (prevAttrs.postPatch or "")
-        + ''
-          substituteInPlace bin/nvcc.profile \
-            --replace-fail \
-              '$(TOP)/$(_NVVM_BRANCH_)' \
-              "''${!outputBin}/nvvm" \
-            --replace-fail \
-              '$(TOP)/$(_TARGET_DIR_)/include' \
-              "''${!outputDev}/include"
+        + (if isAtLeast125 then ''
+            # Substitutions for versions >= 12.5
+            substituteInPlace bin/nvcc.profile \
+              --replace-fail \
+                '$(TOP)/nvvm' \
+                "''${!outputBin}/nvvm" \
+              --replace-fail \
+                '$(TOP)/$(_TARGET_DIR_)/include' \
+                "''${!outputDev}/include"
 
-          cat << EOF >> bin/nvcc.profile
+            cat << EOF >> bin/nvcc.profile
 
-          # Fix a compatible backend compiler
-          PATH += "${backendStdenv.cc}/bin":
+            # Fix a compatible backend compiler
+            PATH += "${backendStdenv.cc}/bin":
 
-          # Expose the split-out nvvm
-          LIBRARIES =+ "-L''${!outputBin}/nvvm/lib"
-          INCLUDES =+ "-I''${!outputBin}/nvvm/include"
-          EOF
-        '';
+            LIBRARIES =+ "-L''${!outputBin}/nvvm/lib"
+            INCLUDES =+ "-I''${!outputBin}/nvvm/include"
+            EOF
+          '' else ''
+            # Substitutions for versions < 12.5
+            substituteInPlace bin/nvcc.profile \
+              --replace-fail \
+                '$(TOP)/$(_NVVM_BRANCH_)' \
+                "''${!outputBin}/nvvm" \
+              --replace-fail \
+                '$(TOP)/$(_TARGET_DIR_)/include' \
+                "''${!outputDev}/include"
+
+            cat << EOF >> bin/nvcc.profile
+
+            # Fix a compatible backend compiler
+            PATH += "${backendStdenv.cc}/bin":
+
+            LIBRARIES =+ "-L''${!outputBin}/nvvm/lib"
+            INCLUDES =+ "-I''${!outputBin}/nvvm/include"
+            EOF
+          '');
 
       # NOTE(@connorbaker):
       # Though it might seem odd or counter-intuitive to add the setup hook to `propagatedBuildInputs` instead of
