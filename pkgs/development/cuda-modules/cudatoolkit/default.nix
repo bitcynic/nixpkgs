@@ -21,12 +21,15 @@
   krb5,
   makeWrapper,
   markForCudatoolkitRootHook,
+  ncurses,
   ncurses5,
+  libxcrypt,
   numactl,
   nss,
   patchelf,
   perl,
   python3, # FIXME: CUDAToolkit 10 may still need python27
+  python312,
   pulseaudio,
   setupCudaHook,
   stdenv,
@@ -93,9 +96,7 @@ backendStdenv.mkDerivation rec {
       gdk-pixbuf
 
       # For autoPatchelf
-      ncurses5
       expat
-      python3
       zlib
       glibc
       xorg.libX11
@@ -153,7 +154,15 @@ backendStdenv.mkDerivation rec {
         qtwebchannel
         qtwebengine
       ])
-    ));
+    ))
+    ++ (lib.optionals (lib.versionAtLeast version "12.5") [
+      ncurses
+      libxcrypt
+      python312
+    ] ++ lib.optionals (lib.versionOlder version "12.5") [
+      ncurses5
+      python3
+    ]);
 
   # Prepended to runpaths by autoPatchelf.
   # The order inherited from older rpath preFixup code
@@ -189,6 +198,12 @@ backendStdenv.mkDerivation rec {
       "libavcodec.so.53"
       "libavformat.so.54"
       "libavformat.so.53"
+    ]
+    ++ lib.optionals (lib.versionAtLeast version "12.5") [
+      "libpython3.8.so.1.0"
+      "libpython3.9.so.1.0"
+      "libpython3.10.so.1.0"
+      "libpython3.11.so.1.0"
     ];
 
   preFixup =
@@ -298,6 +313,16 @@ backendStdenv.mkDerivation rec {
               done
             ''
         }
+
+      ${lib.optionalString (lib.versionAtLeast version "12.5")
+        # Remove cuda-gdb binaries for unsupported Python versions.
+        ''
+          rm -f $out/bin/cuda-gdb-python3.8*
+          rm -f $out/bin/cuda-gdb-python3.9*
+          rm -f $out/bin/cuda-gdb-python3.10*
+          rm -f $out/bin/cuda-gdb-python3.11*
+        ''
+      }
 
       rm -f $out/tools/CUDA_Occupancy_Calculator.xls # FIXME: why?
 
